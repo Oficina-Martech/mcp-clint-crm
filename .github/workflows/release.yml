@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+
+      - name: Validar version do package.json contra a tag
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          PKG=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag v$TAG nao bate com package.json $PKG"
+            exit 1
+          fi
+
+      - name: Extrair release notes do CHANGELOG
+        id: notes
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "Sem secao [$VERSION] no CHANGELOG — usando mensagem da tag" > release_notes.md
+            git tag -l --format='%(contents)' "$TAG" >> release_notes.md
+          fi
+          echo "## Diff" >> release_notes.md
+          PREV=$(git tag --sort=-v:refname | grep -A1 "^${TAG}$" | tail -1)
+          if [ -n "$PREV" ] && [ "$PREV" != "$TAG" ]; then
+            echo "" >> release_notes.md
+            echo "[\`$PREV...$TAG\`](https://github.com/${GITHUB_REPOSITORY}/compare/$PREV...$TAG)" >> release_notes.md
+          fi
+
+      - name: Criar GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file release_notes.md \
+            --latest
