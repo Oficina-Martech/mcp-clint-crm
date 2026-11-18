@@ -160,11 +160,15 @@ Versionamento [SemVer](https://semver.org/lang/pt-BR/). Releases ficam em [GitHu
    git tag -a vX.Y.Z -m "vX.Y.Z — descrição"
    git push origin vX.Y.Z
    ```
-5. Workflow `.github/workflows/release.yml` dispara automaticamente:
-   - Valida que `package.json` bate com a tag
-   - Roda `typecheck`
-   - Extrai notas do CHANGELOG
-   - Cria GitHub Release
+5. Publicar a GitHub Release na máquina local. O GitHub Actions está desligado na org desde
+   17/11/2026, por custo, e o `.github/workflows/release.yml` não roda mais:
+   ```bash
+   npm run typecheck
+   TAG=vX.Y.Z
+   [ "${TAG#v}" = "$(node -p "require('./package.json').version")" ] || echo "ERRO: tag difere do package.json"
+   awk -v ver="${TAG#v}" '$0 ~ "^## \\[" ver "\\]" {f=1; next} f && /^## \[/ {exit} f' CHANGELOG.md > /tmp/release_notes.md
+   gh release create "$TAG" --title "$TAG" --notes-file /tmp/release_notes.md --latest
+   ```
 
 ### Pin a uma versão específica
 
